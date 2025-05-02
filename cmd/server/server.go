@@ -1,97 +1,143 @@
 package main
 
 import (
-	"bufio"
-	"context"
-	"fmt"
-	"net"
-	"os"
-	"strings"
-	"sync"
+    "bufio"
+    "context"
+    "fmt"
+    "net"
+    "strings"
+    "time"
 
-	"github.com/fatih/color"
-	"github.com/redis/go-redis/v9"
+    "github.com/redis/go-redis/v9"
 )
 
-var clients = make(map[net.Conn]*redis.PubSub) // msp of client's connection to redis pubsub
-var mu sync.Mutex
-var rdb *redis.Client
 var ctx = context.Background()
+var rdb *redis.Client
 
 func main() {
-	// Initialize Redis client
-	rdb = redis.NewClient(&redis.Options{
-		Addr: "localhost:6379", // Redis server address
-	})
+    // Initialize Redis client
+    rdb = redis.NewClient(&redis.Options{
+        Addr: "localhost:6379", // Redis server address
+    })
 
-	// Start the server on port 9000
-	listener, err := net.Listen("tcp", ":9000")
-	if err != nil {
-		color.Red("Failed to start server: %v", err)
-		os.Exit(1)
-	}
-	color.Cyan("🚀 NodeChat server started on port 9000")
+    _, err := rdb.Ping(ctx).Result()
+    if err != nil {
+        fmt.Printf("Failed to connect to Redis: %v\n", err)
+        return
+    }
+    fmt.Println("Connected to Redis")
 
-	// Continuously accept client connections
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			color.Red("Failed to accept connection: %v", err)
-			continue
-		}
-		color.Green("New client connected: %s", conn.RemoteAddr().String())
+    // Start the server on port 9000
+    listener, err := net.Listen("tcp", "0.0.0.0:9000") // Bind to all interfaces
+    if err != nil {
+        fmt.Printf("Failed to start server: %v\n", err)
+        return
+    }
+    fmt.Println("🚀 Server started on port 9000 and accessible to all clients on the network")
 
-		// Handle each client in a separate goroutine
-		go handleConnection(conn)
-	}
+    // Start broadcasting the server's IP
+    go broadcastServerIP("9000")
 
+    // Accept client connections
+    for {
+        conn, err := listener.Accept()
+        if err != nil {
+            fmt.Printf("Failed to accept connection: %v\n", err)
+            continue
+        }
+        fmt.Printf("New client connected: %s\n", conn.RemoteAddr().String())
+        go handleConnection(conn)
+    }
 }
 
-// handleConnection handles communication with a single client
 func handleConnection(conn net.Conn) {
-	defer conn.Close()
+    defer conn.Close()
+    reader := bufio.NewReader(conn)
 
-	// Ask client for the chatroom they want to join
-	conn.Write([]byte("Enter chatroom name: "))
-	reader := bufio.NewReader(conn)
-	room, _ := reader.ReadString('\n')
-	room = strings.TrimSpace(room)
+    // Ask for the username
+    conn.Write([]byte("Enter your username: \n"))
+    username, _ := reader.ReadString('\n')
+    username = strings.TrimSpace(username)
+    fmt.Printf("User '%s' connected from %s\n", username, conn.RemoteAddr().String())
 
-	// Subscribe to the chatroom's Redis channel
-	pubsub := rdb.Subscribe(ctx, room)
-	clients[conn] = pubsub
+    // Ask for chatroom name
+    conn.Write([]byte("Enter the name of the chatroom you want to join: \n"))
+    room, _ := reader.ReadString('\n')
+    room = strings.TrimSpace(room)
+    fmt.Printf("User '%s' joined chatroom: %s\n", username, room)
 
-	// Listen for messages from Redis
-	go listenForMessages(conn, pubsub)
+    // Subscribe to Redis channel
+    pubsub := rdb.Subscribe(ctx, room)
+    defer pubsub.Close()
 
-	// Handle incoming messages from the client
-	Msgreader := bufio.NewReader(conn)
-	for {
-		msg, err := Msgreader.ReadString('\n')
-		if err != nil {
-			color.Yellow("Client %v disconnected", conn.RemoteAddr())
-			removeClient(conn)
-			return
-		}
-		msg = strings.TrimSpace(msg)
-		// Publish the message to the Redis chatroom
-		err = rdb.Publish(ctx, room, fmt.Sprintf("%v: %s", conn.RemoteAddr(), msg)).Err()
-		if err != nil {
-			color.Red("Failed to publish message: %v", err)
-		}
-	}
+    // Start listening for messages from Redis
+    go func() {
+        for msg := range pubsub.Channel() {
+            // Check if the message was sent by this client
+            if !strings.HasPrefix(msg.Payload, username+":") {
+                conn.Write([]byte(msg.Payload + "\n"))
+            }
+        }
+    }()
+
+    // Handle incoming messages from the client
+    for {
+        msg, err := reader.ReadString('\n')
+        if err != nil {
+            fmt.Printf("User '%s' disconnected: %v\n", username, err)
+            return
+        }
+        msg = strings.TrimSpace(msg)
+
+        // Publish the message to the Redis chatroom with the username as a prefix
+        rdb.Publish(ctx, room, fmt.Sprintf("%s: %s", username, msg))
+    }
 }
 
-// Listen for messages from Redis and send them to the client
-func listenForMessages(conn net.Conn, pubsub *redis.PubSub) {
-	for msg := range pubsub.Channel() {
-		conn.Write([]byte(msg.Payload + "\n"))
-	}
+// Broadcast the server's IP address on the network
+func broadcastServerIP(port string) {
+    localIP := getLocalIP()
+    if localIP == "" {
+        fmt.Println("Failed to determine local IP for broadcasting.")
+        return
+    }
+
+    addr := net.UDPAddr{
+        IP:   net.IPv4bcast, // Broadcast address
+        Port: 9001,          // Broadcast port
+    }
+
+    conn, err := net.DialUDP("udp", nil, &addr)
+    if err != nil {
+        fmt.Printf("Failed to set up UDP broadcast: %v\n", err)
+        return
+    }
+    defer conn.Close()
+
+    for {
+        message := fmt.Sprintf("SERVER_IP:%s:%s", localIP, port)
+        _, err := conn.Write([]byte(message))
+        if err != nil {
+            fmt.Printf("Failed to broadcast server IP: %v\n", err)
+        }
+        time.Sleep(5 * time.Second) // Broadcast every 5 seconds
+    }
 }
 
-// Remove a client from the map
-func removeClient(conn net.Conn) {
-	mu.Lock()
-	defer mu.Unlock()
-	delete(clients, conn)
+// Get the local IP address of the server
+func getLocalIP() string {
+    addrs, err := net.InterfaceAddrs()
+    if err != nil {
+        fmt.Printf("Error getting network interfaces: %v\n", err)
+        return ""
+    }
+
+    for _, addr := range addrs {
+        if ipNet, ok := addr.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
+            if ipNet.IP.To4() != nil {
+                return ipNet.IP.String()
+            }
+        }
+    }
+    return ""
 }
