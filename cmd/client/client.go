@@ -7,10 +7,12 @@ import (
     "os"
     "strings"
     "time"
+    "github.com/fatih/color"
 )
 
 func main() {
     fmt.Println("Attempting to discover server on the network...")
+    cyan := color.New(color.FgCyan).SprintFunc()
     serverIP, serverPort := discoverServerIP()
 
     if serverIP == "" || serverPort == "" {
@@ -33,8 +35,8 @@ func main() {
         }
     }
 
-    serverAddress := fmt.Sprintf("%s:%s", serverIP, serverPort)
-    fmt.Printf("Connecting to server at %s...\n", serverAddress)
+    serverAddress := fmt.Sprintf("%s:%s", "localhost", serverPort)
+    fmt.Printf("Connecting to server at %s\n", serverAddress)
 
     // Connect to the server
     conn, err := net.Dial("tcp", serverAddress)
@@ -43,25 +45,35 @@ func main() {
         return
     }
     defer conn.Close()
+    flag := false
 
     // Read messages from the server
     go func() {
         for {
+            if flag == true {
+                return
+            }
             message, err := bufio.NewReader(conn).ReadString('\n')
             if err != nil {
                 fmt.Printf("Error reading from server: %v\n", err)
                 return
             }
-            fmt.Println(strings.TrimSpace(message))
+            fmt.Printf("\r%s\n", strings.TrimSpace(message)) 
+            fmt.Print(cyan("you: "))                             
         }
     }()
 
     // Send messages to the server
     reader := bufio.NewReader(os.Stdin)
     for {
-        fmt.Print("you: ")
+        fmt.Print(cyan("you: "))
         text, _ := reader.ReadString('\n')
         conn.Write([]byte(strings.TrimSpace(text) + "\n"))
+        if strings.TrimSpace(text) == "exit" {
+            fmt.Println("Exiting...")
+            flag = true
+            return
+        }
     }
 }
 
