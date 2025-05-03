@@ -9,7 +9,6 @@ NodeChat is a simple, real-time chat application that allows users on the same L
 - **Server Discovery**: Clients automatically find the server using UDP broadcasting.
 - **Chatrooms**: Join specific chatrooms to communicate with others. To leave a chatroom, type `exit`.
 - **Real-Time Messaging**: Messages are delivered instantly using Redis Pub/Sub.
-- **Exit Command**: Leave the chatroom by typing `exit`.
 
 ![image](https://github.com/user-attachments/assets/26239e47-c0f1-4241-bfa5-bcda55362b13)
 
