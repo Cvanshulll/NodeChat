@@ -7,7 +7,7 @@ NodeChat is a simple, real-time chat application that allows users on the same L
 ## Features
 - **LAN Chat**: Chat with users on the same Wi-Fi or LAN network.
 - **Server Discovery**: Clients automatically find the server using UDP broadcasting.
-- **Chatrooms**: Join specific chatrooms to communicate with others.
+- **Chatrooms**: Join specific chatrooms to communicate with others. To leave a chatroom, type `exit`.
 - **Real-Time Messaging**: Messages are delivered instantly using Redis Pub/Sub.
 - **Exit Command**: Leave the chatroom by typing `exit`.
 
