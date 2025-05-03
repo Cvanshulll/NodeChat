@@ -111,7 +111,6 @@ func handleConnection(conn net.Conn) {
 // Broadcast the server's IP address on the network
 func broadcastServerIP(port string) {
     localIP := getLocalIP()
-    fmt.Printf("Local IP address: %s\n", localIP)
     if localIP == "" {
         fmt.Println("Failed to determine local IP for broadcasting.")
         return

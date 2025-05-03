@@ -50,10 +50,10 @@ func main() {
     // Read messages from the server
     go func() {
         for {
+            message, err := bufio.NewReader(conn).ReadString('\n')
             if flag == true {
                 return
             }
-            message, err := bufio.NewReader(conn).ReadString('\n')
             if err != nil {
                 fmt.Printf("Error reading from server: %v\n", err)
                 return
